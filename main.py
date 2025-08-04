@@ -158,10 +158,10 @@ class MineCraftStatusPlugin(BasePlugin):
         :param group_id: 群组ID
         :return: 状态信息字符串
         """
-        if group_id not in self.data['data']['monitor_servers']:
+        if group_id not in self.data['data']['bind_servers']:
             return "当前群组没有绑定任何Minecraft服务器。请使用 /mcadd 命令添加服务器。"
 
-        servers = self.data['data']['monitor_servers'][group_id]
+        servers = self.data['data']['bind_servers'][group_id]
         if not servers:
             return "当前群组没有绑定任何Minecraft服务器。请使用 /mcadd 命令添加服务器。"
 
@@ -212,11 +212,11 @@ class MineCraftStatusPlugin(BasePlugin):
         """
         group_id = int(command[1]) if len(command) > 1 else event.group_id
 
-        if group_id not in self.data['data']['monitor_servers'] or not self.data['data']['monitor_servers'][group_id]:
+        if group_id not in self.data['data']['bind_servers'] or not self.data['data']['bind_servers'][group_id]:
             await event.reply_text(f"群组 {group_id} 没有绑定任何Minecraft服务器。")
             return
 
-        servers = self.data['data']['monitor_servers'][group_id]
+        servers = self.data['data']['bind_servers'][group_id]
         response = f"群组 {group_id} 绑定的服务器列表：\n"
         for server_name, server_address in servers.items():
             response += f"- {server_name}: {server_address}\n"
@@ -301,15 +301,15 @@ class MineCraftStatusPlugin(BasePlugin):
             return
 
         # 更新配置
-        if group_id not in self.data['data']['monitor_servers']:
-            self.data['data']['monitor_servers'][group_id] = {}
+        if group_id not in self.data['data']['bind_servers']:
+            self.data['data']['bind_servers'][group_id] = {}
 
-        if server_name in self.data['data']['monitor_servers'][group_id]:
+        if server_name in self.data['data']['bind_servers'][group_id]:
             await event.reply_text(f"服务器 {server_name} 已经在群组 {group_id} 的监控列表中。")
             return
 
         # 添加服务器到监控列表
-        self.data['data']['monitor_servers'][group_id][server_name] = server_address
+        self.data['data']['bind_servers'][group_id][server_name] = server_address
         await event.reply_text(f"已添加服务器 {server_name} ({server_address}) 到群组 {group_id} 的监控列表。")
 
     async def handle_delete_command(self, event: BaseMessage | GroupMessage | PrivateMessage, command: list) -> None:
@@ -325,13 +325,13 @@ class MineCraftStatusPlugin(BasePlugin):
         server_name = command[1]
         group_id = int(command[2]) if len(command) > 2 else event.group_id
 
-        if group_id not in self.data['data']['monitor_servers']:
+        if group_id not in self.data['data']['bind_servers']:
             await event.reply_text(f"群组 {group_id} 没有绑定任何Minecraft服务器。")
             return
 
-        if server_name in self.data['data']['monitor_servers'][group_id]:
+        if server_name in self.data['data']['bind_servers'][group_id]:
             # 删除指定服务器
-            del self.data['data']['monitor_servers'][group_id][server_name]
+            del self.data['data']['bind_servers'][group_id][server_name]
             await event.reply_text(f"已删除群组 {group_id} 中的服务器 {server_name}。")
         else:
             await event.reply_text(f"群组 {group_id} 中没有名为 {server_name} 的服务器。")
@@ -396,10 +396,10 @@ class MineCraftStatusPlugin(BasePlugin):
     async def on_load(self):
         """插件加载时的初始化"""
         # 注册配置项
-        self.register_config("monitor_interval", 60, value_type="int", allowed_values=["int"],
-                             description="定时监控服务器状态的间隔时间（秒）")
-        self.register_config("mention_online_players_change", False, value_type="bool",
-                             description="当在线玩家数量变化时是否发送消息通知")
+        # self.register_config("monitor_interval", 60, value_type="int", allowed_values=["int"],
+        #                      description="定时监控服务器状态的间隔时间（秒）")
+        # self.register_config("mention_online_players_change", False, value_type="bool",
+        #                      description="当在线玩家数量变化时是否发送消息通知")
         # self.register_config("mention_server_status_change", False, value_type="bool",
         #                      description="当服务器状态变化时是否发送消息通知")
 
@@ -407,12 +407,15 @@ class MineCraftStatusPlugin(BasePlugin):
         if 'data' not in self.data:
             self.data['data'] = {}
 
+        if 'bind_servers' not in self.data['data']:
+            self.data['data']['bind_servers'] = {}
+
         if 'monitor_servers' not in self.data['data']:
             self.data['data']['monitor_servers'] = {}
 
         # 注册用户命令处理器
         self.register_user_func(
-            "用户命令",
+            "UserCommand",
             self.user_command_handler,
             description="查询服务器状态、显示服务器列表",
             usage="/mcs [ip:port]|/mclist [group_id]|/mchelp",
@@ -428,7 +431,7 @@ class MineCraftStatusPlugin(BasePlugin):
 
         # 注册管理员命令处理器
         self.register_admin_func(
-            "管理员命令",
+            "AdminCommand",
             self.admin_command_handler,
             description="添加/删除服务器到监控列表",
             usage="/mcadd <name> <ip:port> [group_id]|/mcdel <name> [group_id]|/mchelp-admin",
