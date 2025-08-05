@@ -13,7 +13,7 @@ _log = get_log("minecraft_status_plugin")  # 日志记录器
 
 class MineCraftStatusPlugin(BasePlugin):
     name = "MinecraftStatusPlugin"  # 插件名
-    version = "0.0.2"  # 插件版本
+    version = "0.0.3"  # 插件版本
 
     @staticmethod
     async def transform_describe_message(message: dict, markdown_format: bool = False) -> str:
@@ -119,13 +119,45 @@ class MineCraftStatusPlugin(BasePlugin):
         :param status: 服务器状态字典
         :return: 格式化后的状态信息
         """
-        description = await self.transform_describe_message(status['description'])
-        return (
-            f"服务器 {server_name} ({ip}:{port}) 状态：在线\n"
-            f"在线玩家：{status['players']['online']}/{status['players']['max']}\n"
-            f"版本：{status['version']['name']}({status['version']['protocol']})\n"
-            f"{description}\n"
-        )
+        # 获取玩家信息
+        players = status.get('players', {})
+        online_players = players.get('online', 0)
+        max_players = players.get('max', 0)
+        
+        # 获取版本信息
+        version_info = status.get('version', {})
+        version_name = version_info.get('name', 'Unknown')
+        protocol_version = version_info.get('protocol', 'Unknown')
+            
+        try:
+            # 处理描述信息
+            description_raw = status.get('description', '')
+            
+            if isinstance(description_raw, str):
+                description = description_raw
+            elif isinstance(description_raw, dict):
+                # 如果描述是字典格式，转换为字符串
+                description = await self.transform_describe_message(description_raw)
+            else:
+                # 如果描述是其他类型，记录警告并使用字符串表示
+                _log.warning(f"未知的描述类型: {type(description_raw)}, 使用默认字符串表示")
+                description = str(description_raw)
+            
+            return (
+                f"服务器 {server_name} ({ip}:{port}) 状态：在线\n"
+                f"在线玩家：{online_players}/{max_players}\n"
+                f"版本：{version_name} ({protocol_version})\n"
+                f"{description}\n"
+            )
+            
+        except Exception as e:
+            _log.error(f"格式化服务器状态时发生错误: {e}")
+            return (
+                f"服务器 {server_name} ({ip}:{port}) 状态：在线\n"
+                f"在线玩家：{online_players}/{max_players}\n"
+                f"版本：{version_name} ({protocol_version})\n"
+                f"无法获取服务器描述信息\n"
+            )
 
     async def query_single_server(self, ip: str, port: int, server_name: str = None) -> str:
         """
@@ -158,10 +190,10 @@ class MineCraftStatusPlugin(BasePlugin):
         :param group_id: 群组ID
         :return: 状态信息字符串
         """
-        if group_id not in self.data['data']['monitor_servers']:
+        if group_id not in self.data['data']['bind_servers']:
             return "当前群组没有绑定任何Minecraft服务器。请使用 /mcadd 命令添加服务器。"
 
-        servers = self.data['data']['monitor_servers'][group_id]
+        servers = self.data['data']['bind_servers'][group_id]
         if not servers:
             return "当前群组没有绑定任何Minecraft服务器。请使用 /mcadd 命令添加服务器。"
 
@@ -204,6 +236,76 @@ class MineCraftStatusPlugin(BasePlugin):
 
         await event.reply_text(response)
 
+    async def handle_list_command(self, event: BaseMessage | GroupMessage | PrivateMessage, command: list) -> None:
+        """
+        处理 /mclist 命令
+        :param event: 消息事件
+        :param command: 解析后的命令列表
+        """
+        group_id = int(command[1]) if len(command) > 1 else event.group_id
+
+        if group_id not in self.data['data']['bind_servers'] or not self.data['data']['bind_servers'][group_id]:
+            await event.reply_text(f"群组 {group_id} 没有绑定任何Minecraft服务器。")
+            return
+
+        servers = self.data['data']['bind_servers'][group_id]
+        response = f"群组 {group_id} 绑定的服务器列表：\n"
+        for server_name, server_address in servers.items():
+            response += f"- {server_name}: {server_address}\n"
+
+        await event.reply_text(response)
+
+    async def handle_help_command(self, event: BaseMessage | GroupMessage | PrivateMessage) -> None:
+        """
+        处理 /mchelp 命令
+        :param event: 消息事件
+        """
+        await event.reply_text("""Minecraft服务器状态查询插件帮助：
+
+用户命令：
+/mcs [ip:port] - 查询服务器状态（不指定则查询群组绑定的服务器）
+/mclist [群组ID] - 显示群组绑定的服务器列表
+/mchelp - 显示此帮助信息
+
+管理员命令：
+/mcadd <名称> <ip:port> [群组ID] - 添加服务器到群组监控列表
+/mcdel <名称> [群组ID] - 从群组监控列表中删除服务器
+
+示例：
+/mcs mc.example.com:25565
+/mclist
+/mchelp""")
+
+    async def user_command_handler(self, event: BaseMessage | GroupMessage | PrivateMessage):
+        """处理用户命令事件"""
+        # 替换消息中的转义符，如\\n -> \n
+        replaced_message = event.raw_message.replace("\\n", "\n")
+
+        # 解析命令
+        try:
+            command = shlex.split(replaced_message)
+        except ValueError:
+            await event.reply_text("命令格式错误，请检查引号是否匹配。")
+            return
+
+        if not command:
+            return
+
+        # 命令分发
+        try:
+            if command[0] == '/mcs':
+                await self.handle_status_command(event, command)
+            elif command[0] == '/mclist':
+                await self.handle_list_command(event, command)
+            elif command[0] == '/mchelp':
+                await self.handle_help_command(event)
+            else:
+                # 不是用户命令，跳过处理
+                return
+        except Exception as e:
+            _log.error(f"处理用户命令时发生错误: {e}")
+            await event.reply_text("处理命令时发生错误，请稍后重试。")
+
     async def handle_add_command(self, event: BaseMessage | GroupMessage | PrivateMessage, command: list) -> None:
         """
         处理 /mcadd 命令
@@ -231,15 +333,15 @@ class MineCraftStatusPlugin(BasePlugin):
             return
 
         # 更新配置
-        if group_id not in self.data['data']['monitor_servers']:
-            self.data['data']['monitor_servers'][group_id] = {}
+        if group_id not in self.data['data']['bind_servers']:
+            self.data['data']['bind_servers'][group_id] = {}
 
-        if server_name in self.data['data']['monitor_servers'][group_id]:
+        if server_name in self.data['data']['bind_servers'][group_id]:
             await event.reply_text(f"服务器 {server_name} 已经在群组 {group_id} 的监控列表中。")
             return
 
         # 添加服务器到监控列表
-        self.data['data']['monitor_servers'][group_id][server_name] = server_address
+        self.data['data']['bind_servers'][group_id][server_name] = server_address
         await event.reply_text(f"已添加服务器 {server_name} ({server_address}) 到群组 {group_id} 的监控列表。")
 
     async def handle_delete_command(self, event: BaseMessage | GroupMessage | PrivateMessage, command: list) -> None:
@@ -255,70 +357,38 @@ class MineCraftStatusPlugin(BasePlugin):
         server_name = command[1]
         group_id = int(command[2]) if len(command) > 2 else event.group_id
 
-        if group_id not in self.data['data']['monitor_servers']:
+        if group_id not in self.data['data']['bind_servers']:
             await event.reply_text(f"群组 {group_id} 没有绑定任何Minecraft服务器。")
             return
 
-        if server_name in self.data['data']['monitor_servers'][group_id]:
+        if server_name in self.data['data']['bind_servers'][group_id]:
             # 删除指定服务器
-            del self.data['data']['monitor_servers'][group_id][server_name]
+            del self.data['data']['bind_servers'][group_id][server_name]
             await event.reply_text(f"已删除群组 {group_id} 中的服务器 {server_name}。")
         else:
             await event.reply_text(f"群组 {group_id} 中没有名为 {server_name} 的服务器。")
 
-    async def handle_list_command(self, event: BaseMessage | GroupMessage | PrivateMessage, command: list) -> None:
+    async def handle_admin_help_command(self, event: BaseMessage | GroupMessage | PrivateMessage) -> None:
         """
-        处理 /mclist 命令
-        :param event: 消息事件
-        :param command: 解析后的命令列表
-        """
-        group_id = int(command[1]) if len(command) > 1 else event.group_id
-
-        if group_id not in self.data['data']['monitor_servers'] or not self.data['data']['monitor_servers'][group_id]:
-            await event.reply_text(f"群组 {group_id} 没有绑定任何Minecraft服务器。")
-            return
-
-        servers = self.data['data']['monitor_servers'][group_id]
-        response = f"群组 {group_id} 绑定的服务器列表：\n"
-        for server_name, server_address in servers.items():
-            response += f"- {server_name}: {server_address}\n"
-
-        await event.reply_text(response)
-
-    async def handle_help_command(self, event: BaseMessage | GroupMessage | PrivateMessage) -> None:
-        """
-        处理 /mchelp 命令
+        处理管理员帮助命令
         :param event: 消息事件
         """
-        await event.reply_text("""Minecraft服务器状态查询插件帮助：
+        await event.reply_text("""Minecraft服务器状态查询插件管理员命令帮助：
 
-命令列表：
-/mcs [ip:port] - 查询服务器状态（不指定则查询群组绑定的服务器）
 /mcadd <名称> <ip:port> [群组ID] - 添加服务器到群组监控列表
 /mcdel <名称> [群组ID] - 从群组监控列表中删除服务器
-/mclist [群组ID] - 显示群组绑定的服务器列表
-/mchelp - 显示此帮助信息
+/mchelp-admin - 显示此帮助信息
 
 示例：
-/mcs mc.example.com:25565
 /mcadd MyServer mc.example.com:25565
+/mcadd MyServer mc.example.com:25565 123456789
 /mcdel MyServer
-/mclist""")
+/mcdel MyServer 123456789
 
-    async def scheduler_monitor_server_status(self, ip: str, port: int):
-        """定时监控Minecraft服务器状态
-        :param ip: 服务器IP地址
-        :param port: 服务器端口
-        """
-        # TODO: 实现定时监控功能
-        pass
+注意：这些命令仅限管理员使用，可以跨群组管理服务器。""")
 
-    async def command_handler(self, event: BaseMessage | GroupMessage | PrivateMessage):
-        """插件命令的解析器
-
-        :param event: 消息事件
-        :return: None
-        """
+    async def admin_command_handler(self, event: BaseMessage | GroupMessage | PrivateMessage):
+        """处理管理员命令事件"""
         # 替换消息中的转义符，如\\n -> \n
         replaced_message = event.raw_message.replace("\\n", "\n")
 
@@ -334,45 +404,75 @@ class MineCraftStatusPlugin(BasePlugin):
 
         # 命令分发
         try:
-            if command[0] == '/mcs':
-                await self.handle_status_command(event, command)
-            elif command[0] == '/mcadd':
+            if command[0] == '/mcadd':
                 await self.handle_add_command(event, command)
             elif command[0] == '/mcdel':
                 await self.handle_delete_command(event, command)
-            elif command[0] == '/mclist':
-                await self.handle_list_command(event, command)
-            elif command[0] == '/mchelp':
-                await self.handle_help_command(event)
+            elif command[0] == '/mchelp-admin':
+                await self.handle_admin_help_command(event)
             else:
-                await event.reply_text("未知命令。使用 /mchelp 查看帮助。")
+                # 不是管理员命令，跳过处理
+                return
         except Exception as e:
-            _log.error(f"处理命令时发生错误: {e}")
+            _log.error(f"处理管理员命令时发生错误: {e}")
             await event.reply_text("处理命令时发生错误，请稍后重试。")
+
+    async def scheduler_monitor_server_status(self, ip: str, port: int):
+        """定时监控Minecraft服务器状态
+        :param ip: 服务器IP地址
+        :param port: 服务器端口
+        """
+        # TODO: 实现定时监控功能
+        pass
 
     async def on_load(self):
         """插件加载时的初始化"""
+        # 注册配置项
+        # self.register_config("monitor_interval", 60, value_type="int", allowed_values=["int"],
+        #                      description="定时监控服务器状态的间隔时间（秒）")
+        # self.register_config("mention_online_players_change", False, value_type="bool",
+        #                      description="当在线玩家数量变化时是否发送消息通知")
+        # self.register_config("mention_server_status_change", False, value_type="bool",
+        #                      description="当服务器状态变化时是否发送消息通知")
+
         # 创建持久化数据结构
         if 'data' not in self.data:
             self.data['data'] = {}
 
+        if 'bind_servers' not in self.data['data']:
+            self.data['data']['bind_servers'] = {}
+
         if 'monitor_servers' not in self.data['data']:
             self.data['data']['monitor_servers'] = {}
 
-        # 注册命令处理器
+        # 注册用户命令处理器
         self.register_user_func(
-            "命令事件处理器",
-            self.command_handler,
-            description="处理插件命令（如/mcs）",
-            usage="/mcs [ip:[port]]",
-            regex='^/mc(s|add|del|list|watch|help)',
+            "UserCommand",
+            self.user_command_handler,
+            description="查询服务器状态、显示服务器列表",
+            usage="/mcs [ip:port]|/mclist [group_id]|/mchelp",
+            regex='^/mc(s|list|help)',
             examples=[
                 "/mcs my.server.com:25565",  # 查询指定服务器状态
-                "/mcadd MyServer my.server.com:25565",
-                "/mcadd MyServer my.server.com:25565 123456789",  # 可选的群组ID
-                "/mcdel MyServer",  # 删除指定服务器
-                "/mcdel MyServer 123456789",  # 删除指定服务器，指定群组ID
+                "/mcs",  # 查询群组绑定的服务器状态
                 "/mclist",  # 列出群组绑定的服务器
+                "/mclist 123456789",  # 列出指定群组绑定的服务器
                 "/mchelp"  # 显示帮助信息
+            ]
+        )
+
+        # 注册管理员命令处理器
+        self.register_admin_func(
+            "AdminCommand",
+            self.admin_command_handler,
+            description="添加/删除服务器到监控列表",
+            usage="/mcadd <name> <ip:port> [group_id]|/mcdel <name> [group_id]|/mchelp-admin",
+            regex='^/mc(add|del|help-admin)',
+            examples=[
+                "/mcadd MyServer my.server.com:25565",  # 添加服务器到当前群组
+                "/mcadd MyServer my.server.com:25565 123456789",  # 添加服务器到指定群组
+                "/mcdel MyServer",  # 删除当前群组中的服务器
+                "/mcdel MyServer 123456789",  # 删除指定群组中的服务器
+                "/mchelp-admin"  # 显示管理员帮助信息
             ]
         )
