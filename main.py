@@ -119,13 +119,45 @@ class MineCraftStatusPlugin(BasePlugin):
         :param status: 服务器状态字典
         :return: 格式化后的状态信息
         """
-        description = await self.transform_describe_message(status['description'])
-        return (
-            f"服务器 {server_name} ({ip}:{port}) 状态：在线\n"
-            f"在线玩家：{status['players']['online']}/{status['players']['max']}\n"
-            f"版本：{status['version']['name']}({status['version']['protocol']})\n"
-            f"{description}\n"
-        )
+        # 获取玩家信息
+        players = status.get('players', {})
+        online_players = players.get('online', 0)
+        max_players = players.get('max', 0)
+        
+        # 获取版本信息
+        version_info = status.get('version', {})
+        version_name = version_info.get('name', 'Unknown')
+        protocol_version = version_info.get('protocol', 'Unknown')
+            
+        try:
+            # 处理描述信息
+            description_raw = status.get('description', '')
+            
+            if isinstance(description_raw, str):
+                description = description_raw
+            elif isinstance(description_raw, dict):
+                # 如果描述是字典格式，转换为字符串
+                description = await self.transform_describe_message(description_raw)
+            else:
+                # 如果描述是其他类型，记录警告并使用字符串表示
+                _log.warning(f"未知的描述类型: {type(description_raw)}, 使用默认字符串表示")
+                description = str(description_raw)
+            
+            return (
+                f"服务器 {server_name} ({ip}:{port}) 状态：在线\n"
+                f"在线玩家：{online_players}/{max_players}\n"
+                f"版本：{version_name} ({protocol_version})\n"
+                f"{description}\n"
+            )
+            
+        except Exception as e:
+            _log.error(f"格式化服务器状态时发生错误: {e}")
+            return (
+                f"服务器 {server_name} ({ip}:{port}) 状态：在线\n"
+                f"在线玩家：{online_players}/{max_players}\n"
+                f"版本：{version_name} ({protocol_version})\n"
+                f"无法获取服务器描述信息\n"
+            )
 
     async def query_single_server(self, ip: str, port: int, server_name: str = None) -> str:
         """
