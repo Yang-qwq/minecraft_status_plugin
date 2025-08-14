@@ -131,7 +131,7 @@ class MineCraftStatusPlugin(BasePlugin):
             
         try:
             # 处理描述信息
-            description_raw = status.get('description', '')
+            description_raw = status.get('description', None)
             
             if isinstance(description_raw, str):
                 description = description_raw
@@ -167,22 +167,22 @@ class MineCraftStatusPlugin(BasePlugin):
         :param server_name: 服务器名称（可选）
         :return: 状态信息字符串
         """
+        display_name = server_name or f"{ip}:{port}"
+
         try:
             status = await self.get_server_status(ip, port)
             _log.debug(f"获取服务器 {ip}:{port} 状态成功")
 
-            display_name = server_name or f"{ip}:{port}"
             return await self.format_server_status(display_name, ip, port, status)
-
         except mcping.exceptions.ServerTimeoutError:
-            _log.warning(f"连接到 {ip}:{port} 时超时")
-            return f"服务器 {server_name or ip}:{port} 状态：超时\n"
+            _log.warning(f"发起查询 {ip}:{port} 时超时")
+            return f"服务器 {display_name} ({ip}:{port}) 状态：超时\n"
         except mcping.exceptions.InvalidResponseError:
-            _log.warning(f"连接到 {ip}:{port} 时响应无效")
-            return f"服务器 {server_name or ip}:{port} 状态：响应无效\n"
+            _log.warning(f"发起查询 {ip}:{port} 时响应无效")
+            return f"服务器 {display_name} ({ip}:{port}) 状态：响应无效\n"
         except Exception as e:
-            _log.error(f"查询服务器 {ip}:{port} 时发生错误: {e}")
-            return f"服务器 {server_name or ip}:{port} 状态：查询失败\n"
+            _log.error(f"发起查询 {ip}:{port} 时发生错误: {e}")
+            return f"服务器 {display_name} ({ip}:{port}) 状态：查询失败\n"
 
     async def query_group_servers(self, group_id: int) -> str:
         """
