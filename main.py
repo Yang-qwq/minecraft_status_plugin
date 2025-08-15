@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
-from ncatbot.core import GroupMessage, BaseMessage, PrivateMessage
+import re
+import shlex
+import sqlite3
+from typing import Any, Dict, Tuple
+
+import mcping
+from ncatbot.core import BaseMessage, GroupMessage, PrivateMessage
 from ncatbot.plugin import BasePlugin, CompatibleEnrollment
 from ncatbot.utils.logger import get_log
-import shlex
-import mcping
-from typing import Tuple, Optional, Dict, Any
-import re
 
 bot = CompatibleEnrollment  # 兼容回调函数注册器
 _log = get_log("minecraft_status_plugin")  # 日志记录器
@@ -444,6 +446,8 @@ class MineCraftStatusPlugin(BasePlugin):
 
         if 'monitor_servers' not in self.data['data']:
             self.data['data']['monitor_servers'] = {}
+
+        # 设置数据存储路径
 
         # 注册用户命令处理器
         self.register_user_func(
