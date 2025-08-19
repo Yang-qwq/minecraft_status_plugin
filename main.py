@@ -19,16 +19,15 @@ bot = CompatibleEnrollment  # 兼容回调函数注册器
 _log = get_log("minecraft_status_plugin")  # 日志记录器
 
 
-class MineCraftStatusPlugin(BasePlugin):
+class MinecraftStatusPlugin(BasePlugin):
     name = "MinecraftStatusPlugin"  # 插件名
     version = "0.0.4"  # 插件版本
 
-    # def __init__(self):
-    #     super().__init__()
-    #     self.db_path = None
-
     def init_database(self):
-        """初始化SQLite数据库"""
+        """初始化数据库，创建必要的表格和索引
+
+        :return: None
+        """
         try:
             # 确保数据库目录存在
             db_dir = os.path.dirname(self.db_path)
@@ -37,15 +36,31 @@ class MineCraftStatusPlugin(BasePlugin):
             
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
+
+            # 创建服务器状态表（按服务器IP+端口存储，避免重复）
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS server_status (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    server_ip TEXT NOT NULL,
+                    server_port INTEGER NOT NULL,
+                    online_players INTEGER,
+                    max_players INTEGER,
+                    version_name TEXT,
+                    protocol_version TEXT,
+                    description TEXT,
+                    is_online BOOLEAN NOT NULL,
+                    response_time REAL,
+                    last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(server_ip, server_port)
+                )
+            ''')
             
-            # 创建服务器状态历史表
+            # 创建服务器状态历史表（按服务器IP+端口存储）
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS server_status_history (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    server_name TEXT NOT NULL,
                     server_ip TEXT NOT NULL,
                     server_port INTEGER NOT NULL,
-                    group_id INTEGER NOT NULL,
                     online_players INTEGER,
                     max_players INTEGER,
                     version_name TEXT,
@@ -57,7 +72,7 @@ class MineCraftStatusPlugin(BasePlugin):
                 )
             ''')
             
-            # 创建监控配置表
+            # 创建监控配置表（记录哪些群组监控哪些服务器）
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS monitor_config (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,7 +81,6 @@ class MineCraftStatusPlugin(BasePlugin):
                     server_port INTEGER NOT NULL,
                     group_id INTEGER NOT NULL,
                     is_monitoring BOOLEAN DEFAULT TRUE,
-                    monitor_interval INTEGER DEFAULT 300,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(server_name, group_id)
@@ -75,13 +89,18 @@ class MineCraftStatusPlugin(BasePlugin):
             
             # 创建索引以提高查询性能
             cursor.execute('''
-                CREATE INDEX IF NOT EXISTS idx_server_status_history_server_time 
-                ON server_status_history(server_name, timestamp)
+                CREATE INDEX IF NOT EXISTS idx_server_status_ip_port 
+                ON server_status(server_ip, server_port)
+            ''')
+
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_server_status_history_ip_port_time 
+                ON server_status_history(server_ip, server_port, timestamp)
             ''')
             
             cursor.execute('''
-                CREATE INDEX IF NOT EXISTS idx_server_status_history_group_time 
-                ON server_status_history(group_id, timestamp)
+                CREATE INDEX IF NOT EXISTS idx_monitor_config_group 
+                ON monitor_config(group_id)
             ''')
             
             conn.commit()
@@ -91,9 +110,16 @@ class MineCraftStatusPlugin(BasePlugin):
         except Exception as e:
             _log.error(f"数据库初始化失败: {e}")
 
-    async def save_server_status(self, server_name: str, ip: str, port: int, group_id: int, 
+    async def save_server_status(self, ip: str, port: int, 
                                 status: Dict[str, Any], response_time: float = None):
-        """保存服务器状态到数据库"""
+        """保存服务器状态到数据库
+
+        :param ip: 服务器IP地址
+        :param port: 服务器端口
+        :param status: 服务器状态字典
+        :param response_time: 响应时间（毫秒）
+        :return: None
+        """
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
@@ -106,7 +132,7 @@ class MineCraftStatusPlugin(BasePlugin):
             version_info = status.get('version', {})
             version_name = version_info.get('name', 'Unknown')
             protocol_version = version_info.get('protocol', 'Unknown')
-            
+
             description = ""
             if 'description' in status:
                 if isinstance(status['description'], str):
@@ -115,55 +141,105 @@ class MineCraftStatusPlugin(BasePlugin):
                     description = await self.transform_describe_message(status['description'])
                 else:
                     description = str(status['description'])
+
+            # 先更新或插入当前状态到server_status表
+            cursor.execute('''
+                INSERT OR REPLACE INTO server_status 
+                (server_ip, server_port, online_players, max_players, 
+                 version_name, protocol_version, description, is_online, response_time, last_updated)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                ip, port, online_players, max_players,
+                version_name, protocol_version, description, True, response_time,
+                datetime.datetime.now()
+            ))
             
-            # 插入状态记录
+            # 再插入历史记录到server_status_history表
             cursor.execute('''
                 INSERT INTO server_status_history 
-                (server_name, server_ip, server_port, group_id, online_players, max_players, 
+                (server_ip, server_port, online_players, max_players, 
                  version_name, protocol_version, description, is_online, response_time, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
-                server_name, ip, port, group_id, online_players, max_players,
+                ip, port, online_players, max_players,
                 version_name, protocol_version, description, True, response_time,
                 datetime.datetime.now()
             ))
             
             conn.commit()
             conn.close()
-            _log.debug(f"已保存服务器 {server_name} 的状态记录")
+            _log.debug(f"已保存服务器 {ip}:{port} 的状态记录")
             
         except Exception as e:
             _log.error(f"保存服务器状态失败: {e}")
 
-    async def save_server_offline_status(self, server_name: str, ip: str, port: int, group_id: int):
-        """保存服务器离线状态到数据库"""
+    async def save_server_offline_status(self, ip: str, port: int):
+        """保存服务器离线状态到数据库
+
+        :param ip: 服务器IP地址
+        :param port: 服务器端口
+        :return:
+        """
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
+
+            # 先更新或插入当前状态到server_status表
+            cursor.execute('''
+                INSERT OR REPLACE INTO server_status 
+                (server_ip, server_port, online_players, max_players, 
+                 version_name, protocol_version, description, is_online, response_time, last_updated)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                ip, port, 0, 0,
+                'Unknown', 'Unknown', 'Server Offline', False, None,
+                datetime.datetime.now()
+            ))
             
+            # 再插入历史记录到server_status_history表
             cursor.execute('''
                 INSERT INTO server_status_history 
-                (server_name, server_ip, server_port, group_id, online_players, max_players, 
+                (server_ip, server_port, online_players, max_players, 
                  version_name, protocol_version, description, is_online, response_time, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
-                server_name, ip, port, group_id, 0, 0,
+                ip, port, 0, 0,
                 'Unknown', 'Unknown', 'Server Offline', False, None,
                 datetime.datetime.now()
             ))
             
             conn.commit()
             conn.close()
-            _log.debug(f"已保存服务器 {server_name} 的离线状态记录")
+            _log.debug(f"已保存服务器 {ip}:{port} 的离线状态记录")
             
         except Exception as e:
             _log.error(f"保存服务器离线状态失败: {e}")
 
     async def get_server_history(self, server_name: str, group_id: int, hours: int = 24) -> List[Dict]:
-        """获取服务器历史状态数据"""
+        """获取服务器的历史状态数据
+
+        :param server_name: 服务器名称
+        :param group_id: 群组ID
+        :param hours: 查询的小时数，默认为24小时
+        :return:
+        """
         try:
+            # 首先通过服务器名称和群组ID获取服务器IP和端口
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT server_ip, server_port
+                FROM monitor_config
+                WHERE server_name = ? AND group_id = ? AND is_monitoring = TRUE
+            ''', (server_name, group_id))
+            
+            server_info = cursor.fetchone()
+            if not server_info:
+                conn.close()
+                return []
+            
+            ip, port = server_info
             
             # 获取指定时间范围内的历史数据
             time_limit = datetime.datetime.now() - datetime.timedelta(hours=hours)
@@ -171,9 +247,9 @@ class MineCraftStatusPlugin(BasePlugin):
             cursor.execute('''
                 SELECT timestamp, online_players, max_players, is_online, response_time
                 FROM server_status_history
-                WHERE server_name = ? AND group_id = ? AND timestamp >= ?
+                WHERE server_ip = ? AND server_port = ? AND timestamp >= ?
                 ORDER BY timestamp ASC
-            ''', (server_name, group_id, time_limit))
+            ''', (ip, port, time_limit))
             
             rows = cursor.fetchall()
             conn.close()
@@ -193,6 +269,44 @@ class MineCraftStatusPlugin(BasePlugin):
         except Exception as e:
             _log.error(f"获取服务器历史数据失败: {e}")
             return []
+
+    async def get_server_current_status(self, ip: str, port: int) -> Optional[Dict]:
+        """获取服务器当前状态
+
+        :param ip: 服务器IP地址
+        :param port: 服务器端口
+        :return:
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT online_players, max_players, version_name, protocol_version, 
+                       description, is_online, response_time, last_updated
+                FROM server_status
+                WHERE server_ip = ? AND server_port = ?
+            ''', (ip, port))
+            
+            row = cursor.fetchone()
+            conn.close()
+            
+            if row:
+                return {
+                    'online_players': row[0],
+                    'max_players': row[1],
+                    'version_name': row[2],
+                    'protocol_version': row[3],
+                    'description': row[4],
+                    'is_online': bool(row[5]),
+                    'response_time': row[6],
+                    'last_updated': row[7]
+                }
+            return None
+            
+        except Exception as e:
+            _log.error(f"获取服务器当前状态失败: {e}")
+            return None
 
     async def generate_status_chart(self, server_name: str, group_id: int, hours: int = 24) -> Optional[str]:
         """生成服务器状态图表"""
@@ -253,22 +367,23 @@ class MineCraftStatusPlugin(BasePlugin):
             return None
 
     async def monitor_all_servers(self):
-        """监控所有启用的服务器 - 框架定时任务调用"""
+        """监控所有启用的服务器，避免重复查询"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
-            # 获取所有启用的监控配置
+            # 获取所有启用的监控配置，按服务器IP+端口分组
             cursor.execute('''
-                SELECT server_name, server_ip, server_port, group_id
+                SELECT DISTINCT server_ip, server_port
                 FROM monitor_config
                 WHERE is_monitoring = TRUE
             ''')
             
-            servers = cursor.fetchall()
+            unique_servers = cursor.fetchall()
             conn.close()
             
-            for server_name, ip, port, group_id in servers:
+            # 只查询一次每个唯一的服务器
+            for ip, port in unique_servers:
                 try:
                     start_time = datetime.datetime.now()
                     status = await self.get_server_status(ip, port)
@@ -276,15 +391,15 @@ class MineCraftStatusPlugin(BasePlugin):
                     
                     response_time = (end_time - start_time).total_seconds() * 1000  # 转换为毫秒
                     
-                    # 保存状态到数据库
-                    await self.save_server_status(server_name, ip, port, group_id, status, response_time)
+                    # 保存状态到数据库（不需要group_id参数）
+                    await self.save_server_status(ip, port, status, response_time)
                     
-                    _log.debug(f"监控服务器 {server_name} 成功")
+                    _log.debug(f"监控服务器 {ip}:{port} 成功")
                     
                 except Exception as e:
-                    _log.warning(f"监控服务器 {server_name} 失败: {e}")
-                    # 保存离线状态
-                    await self.save_server_offline_status(server_name, ip, port, group_id)
+                    _log.warning(f"监控服务器 {ip}:{port} 失败: {e}")
+                    # 保存离线状态（不需要group_id参数）
+                    await self.save_server_offline_status(ip, port)
             
         except Exception as e:
             _log.error(f"监控服务器时发生错误: {e}")
@@ -318,7 +433,12 @@ class MineCraftStatusPlugin(BasePlugin):
             await event.reply_text(f"生成图表时发生错误: {e}")
 
     async def handle_monitor_command(self, event: BaseMessage | GroupMessage | PrivateMessage, command: list) -> None:
-        """处理 /mcmonitor 命令"""
+        """处理 /mcmonitor 命令，启用或禁用服务器自动监控
+
+        :param event: 事件对象
+        :param command: 命令参数列表
+        :return: None
+        """
         if len(command) < 3:
             await event.reply_text("请提供服务器名称和监控状态。格式：/mcmonitor <服务器名称> <on|off>")
             return
@@ -334,7 +454,7 @@ class MineCraftStatusPlugin(BasePlugin):
         
         # 检查服务器是否在绑定列表中
         if group_id not in self.data['data']['bind_servers'] or server_name not in self.data['data']['bind_servers'][group_id]:
-            await event.reply_text(f"服务器 {server_name} 不在当前群组的监控列表中。")
+            await event.reply_text(f"服务器 {server_name} 不在当前群组的绑定列表中。")
             return
         
         server_address = self.data['data']['bind_servers'][group_id][server_name]
@@ -430,48 +550,76 @@ class MineCraftStatusPlugin(BasePlugin):
         except Exception as e:
             await event.reply_text(f"获取统计信息时发生错误: {e}")
 
-    async def handle_config_command(self, event: BaseMessage | GroupMessage | PrivateMessage, command: list) -> None:
-        """处理 /mcconfig 命令 - 显示当前配置"""
-        if len(command) == 1:
-            # 显示当前配置
-            config_info = f"""当前插件配置：
-
-📊 监控设置：
-• 监控间隔：{self.config['monitor_interval']} 秒
-• 玩家变化通知：{'启用' if self.config['mention_online_players_change'] else '禁用'}
-• 状态变化通知：{'启用' if self.config['mention_server_status_change'] else '禁用'}
-
-💡 配置说明：
-• 监控间隔：60-3600秒，影响数据收集频率
-• 玩家变化通知：在线玩家数量变化时发送通知
-• 状态变化通知：服务器在线状态变化时发送通知
-
-🔧 修改配置请使用管理员命令或直接编辑配置文件"""
-            await event.reply_text(config_info)
-        else:
-            await event.reply_text("格式：/mcconfig - 显示当前配置信息")
-
-    def _register_monitor_task(self):
-        """注册监控定时任务"""
+    async def handle_status_all_command(self, event: BaseMessage | GroupMessage | PrivateMessage, command: list) -> None:
+        """处理 /mcstatus 命令，显示所有监控服务器的状态"""
         try:
-            # 移除现有的定时任务
-            self.remove_scheduled_task("minecraft_monitor")
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
             
-            # 获取监控间隔
-            interval = self.config.get('monitor_interval', 300)
+            # 获取所有监控中的服务器状态
+            cursor.execute('''
+                SELECT server_ip, server_port, online_players, max_players, last_updated
+                FROM server_status
+                WHERE is_online = TRUE
+                ORDER BY server_ip, server_port
+            ''')
             
-            # 注册新的定时任务
-            self.add_scheduled_task(
-                self.monitor_all_servers,
-                "minecraft_monitor",
-                f"*/{interval//60} * * * *" if interval >= 60 else "*/1 * * * *",
-                # description="Minecraft服务器状态监控"
-            )
+            online_servers = cursor.fetchall()
             
-            _log.info(f"已注册监控定时任务，间隔：{interval}秒")
+            # 获取所有离线的服务器
+            cursor.execute('''
+                SELECT server_ip, server_port, last_updated
+                FROM server_status
+                WHERE is_online = FALSE
+                ORDER BY server_ip, server_port
+            ''')
+            
+            offline_servers = cursor.fetchall()
+            conn.close()
+            
+            if not online_servers and not offline_servers:
+                await event.reply_text("当前没有监控任何服务器。")
+                return
+            
+            # 构建响应消息
+            response = "**所有监控服务器状态**\n\n"
+            
+            if online_servers:
+                response += "**在线服务器：**\n"
+                response += "| 服务器IP | 服务器端口 | 在线人数 | 最大人数 | 更新时间 |\n"
+                response += "|-|-|-|-|-|\n"
+                
+                for ip, port, online, max_players, updated in online_servers:
+                    # 格式化时间
+                    try:
+                        updated_time = datetime.datetime.fromisoformat(updated)
+                        formatted_time = updated_time.strftime("%Y-%m-%d %H:%M:%S")
+                    except:
+                        formatted_time = updated
+                    
+                    response += f"| {ip} | {port} | {online} | {max_players} | {formatted_time} |\n"
+                
+                response += "\n"
+            
+            if offline_servers:
+                response += "**离线服务器：**\n"
+                response += "| 服务器IP | 服务器端口 | 状态 | 更新时间 |\n"
+                response += "|-|-|-|-|\n"
+                
+                for ip, port, updated in offline_servers:
+                    # 格式化时间
+                    try:
+                        updated_time = datetime.datetime.fromisoformat(updated)
+                        formatted_time = updated_time.strftime("%Y-%m-%d %H:%M:%S")
+                    except:
+                        formatted_time = updated
+                    
+                    response += f"| {ip} | {port} | 离线 | {formatted_time} |\n"
+            
+            await event.reply_text(response)
             
         except Exception as e:
-            _log.error(f"注册监控定时任务失败: {e}")
+            await event.reply_text(f"获取服务器状态时发生错误: {e}")
 
     @staticmethod
     async def transform_describe_message(message: dict, markdown_format: bool = False) -> str:
@@ -617,16 +765,55 @@ class MineCraftStatusPlugin(BasePlugin):
                 f"无法获取服务器描述信息\n"
             )
 
-    async def query_single_server(self, ip: str, port: int, server_name: str = None) -> str:
+    async def query_single_server(self, ip: str, port: int, server_name: str = None, save_to_db: bool = True) -> str:
         """
-        查询单个服务器状态
+        查询单个服务器状态，优先从数据库获取，避免重复查询
         :param ip: 服务器IP
         :param port: 服务器端口
         :param server_name: 服务器名称（可选）
+        :param save_to_db: 是否将查询结果保存到数据库（默认True）
         :return: 状态信息字符串
         """
         display_name = server_name or f"{ip}:{port}"
 
+        # 如果不需要保存到数据库，直接进行实时查询
+        if not save_to_db:
+            try:
+                status = await self.get_server_status(ip, port)
+                _log.debug(f"获取服务器 {ip}:{port} 实时状态成功")
+
+                return await self.format_server_status(display_name, ip, port, status)
+            except mcping.exceptions.ServerTimeoutError:
+                _log.warning(f"发起查询 {ip}:{port} 时超时")
+                return f"服务器 {display_name} ({ip}:{port}) 状态：超时\n"
+            except mcping.exceptions.InvalidResponseError:
+                _log.warning(f"发起查询 {ip}:{port} 时响应无效")
+                return f"服务器 {display_name} ({ip}:{port}) 状态：响应无效\n"
+            except Exception as e:
+                _log.error(f"发起查询 {ip}:{port} 时发生错误: {e}")
+                return f"服务器 {display_name} ({ip}:{port}) 状态：查询失败\n"
+
+        # 需要保存到数据库时，优先从数据库获取状态
+        db_status = await self.get_server_current_status(ip, port)
+        
+        if db_status:
+            # 检查数据是否过期（超过5分钟的数据认为过期）
+            last_updated = datetime.datetime.fromisoformat(db_status['last_updated'])
+            if (datetime.datetime.now() - last_updated).total_seconds() < 300:  # 5分钟
+                # 数据未过期，直接返回
+                if db_status['is_online']:
+                    return (
+                        f"服务器 {display_name} ({ip}:{port}) 状态：在线\n"
+                        f"在线玩家：{db_status['online_players']}/{db_status['max_players']}\n"
+                        f"版本：{db_status['version_name']} ({db_status['protocol_version']})\n"
+                        f"{db_status['description']}\n"
+                        f"响应时间：{db_status['response_time']:.0f}ms\n"
+                        f"更新时间：{db_status['last_updated']}\n"
+                    )
+                else:
+                    return f"服务器 {display_name} ({ip}:{port}) 状态：离线\n"
+
+        # 数据库中没有数据或数据过期，进行实时查询
         try:
             status = await self.get_server_status(ip, port)
             _log.debug(f"获取服务器 {ip}:{port} 状态成功")
@@ -642,10 +829,11 @@ class MineCraftStatusPlugin(BasePlugin):
             _log.error(f"发起查询 {ip}:{port} 时发生错误: {e}")
             return f"服务器 {display_name} ({ip}:{port}) 状态：查询失败\n"
 
-    async def query_group_servers(self, group_id: int) -> str:
+    async def query_group_servers(self, group_id: int, save_to_db: bool = True) -> str:
         """
-        查询群组绑定的所有服务器状态
+        查询群组绑定的所有服务器状态，优先使用数据库中的状态
         :param group_id: 群组ID
+        :param save_to_db: 是否将查询结果保存到数据库（默认True）
         :return: 状态信息字符串
         """
         if group_id not in self.data['data']['bind_servers']:
@@ -665,7 +853,36 @@ class MineCraftStatusPlugin(BasePlugin):
                 response_parts.append(f"服务器 {server_name} 地址格式错误: {server_address}")
                 continue
 
-            status_info = await self.query_single_server(ip, port, server_name)
+            # 如果不需要保存到数据库，直接进行实时查询
+            if not save_to_db:
+                status_info = await self.query_single_server(ip, port, server_name, save_to_db=False)
+            else:
+                # 优先从数据库获取状态
+                db_status = await self.get_server_current_status(ip, port)
+                
+                if db_status:
+                    # 检查数据是否过期（超过5分钟的数据认为过期）
+                    last_updated = datetime.datetime.fromisoformat(db_status['last_updated'])
+                    if (datetime.datetime.now() - last_updated).total_seconds() < 300:  # 5分钟
+                        # 数据未过期，直接使用
+                        if db_status['is_online']:
+                            status_info = (
+                                f"服务器 {server_name} ({ip}:{port}) 状态：在线\n"
+                                f"在线玩家：{db_status['online_players']}/{db_status['max_players']}\n"
+                                f"版本：{db_status['version_name']} ({db_status['protocol_version']})\n"
+                                f"{db_status['description']}\n"
+                                f"响应时间：{db_status['response_time']:.0f}ms\n"
+                                f"更新时间：{db_status['last_updated']}\n"
+                            )
+                        else:
+                            status_info = f"服务器 {server_name} ({ip}:{port}) 状态：离线\n"
+                    else:
+                        # 数据过期，进行实时查询
+                        status_info = await self.query_single_server(ip, port, server_name, save_to_db=True)
+                else:
+                    # 数据库中没有数据，进行实时查询
+                    status_info = await self.query_single_server(ip, port, server_name, save_to_db=True)
+
             response_parts.append(status_info)
 
             # 如果不是最后一个服务器，添加分隔符
@@ -681,13 +898,13 @@ class MineCraftStatusPlugin(BasePlugin):
         :param command: 解析后的命令列表
         """
         if len(command) == 1:
-            # 查询群组绑定的服务器
-            response = await self.query_group_servers(event.group_id)
+            # 查询群组绑定的服务器，不保存到数据库（避免干扰统计信息）
+            response = await self.query_group_servers(event.group_id, save_to_db=False)
         else:
-            # 查询指定服务器
+            # 查询指定服务器，不保存到数据库（避免干扰统计信息）
             try:
                 ip, port = self.parse_server_address(command[1])
-                response = await self.query_single_server(ip, port)
+                response = await self.query_single_server(ip, port, save_to_db=False)
             except ValueError as e:
                 await event.reply_text(f"错误: {e}")
                 return
@@ -721,12 +938,12 @@ class MineCraftStatusPlugin(BasePlugin):
         await event.reply_text("""Minecraft服务器状态查询插件帮助：
 
 用户命令：
-/mcs [ip:port] - 查询服务器状态（不指定则查询群组绑定的服务器）
+/mcs [ip:port] - 查询服务器状态（不指定则查询群组绑定的服务器，获取实时数据）
 /mclist [群组ID] - 显示群组绑定的服务器列表
 /mchelp - 显示此帮助信息
 /mcchart <服务器名称> [小时数] - 生成服务器状态图表（默认24小时）
 /mcstats <服务器名称> [小时数] - 查看服务器统计信息（默认24小时）
-/mcconfig - 查看当前插件配置
+/mcstatus - 显示所有监控服务器的当前状态
 
 管理员命令：
 /mcadd <名称> <ip:port> [群组ID] - 添加服务器到群组监控列表
@@ -734,12 +951,13 @@ class MineCraftStatusPlugin(BasePlugin):
 /mcmonitor <名称> <on|off> - 启用/禁用服务器自动监控
 
 示例：
-/mcs mc.example.com:25565
+/mcs my.server.com:25565  # 查询指定服务器实时状态
+/mcs  # 查询群组绑定的服务器实时状态
 /mclist
 /mchelp
 /mcchart MyServer 48
 /mcstats MyServer 72
-/mcconfig""")
+""")
 
     async def user_command_handler(self, event: BaseMessage | GroupMessage | PrivateMessage):
         """处理用户命令事件"""
@@ -768,8 +986,8 @@ class MineCraftStatusPlugin(BasePlugin):
                 await self.handle_chart_command(event, command)
             elif command[0] == '/mcstats':
                 await self.handle_stats_command(event, command)
-            elif command[0] == '/mcconfig':
-                await self.handle_config_command(event, command)
+            elif command[0] == '/mcstatus':
+                await self.handle_status_all_command(event, command)
             else:
                 # 不是用户命令，跳过处理
                 return
@@ -851,7 +1069,7 @@ class MineCraftStatusPlugin(BasePlugin):
 /mcmonitor <名称> <on|off> - 启用/禁用服务器自动监控
 /mcchart <名称> [小时数] - 生成服务器状态图表
 /mcstats <名称> [小时数] - 查看服务器统计信息
-/mcconfig - 查看当前插件配置
+/mcstatus - 显示所有监控服务器的当前状态
 /mchelp-admin - 显示此帮助信息
 
 示例：
@@ -863,7 +1081,6 @@ class MineCraftStatusPlugin(BasePlugin):
 /mcmonitor MyServer off
 /mcchart MyServer 24
 /mcstats MyServer 48
-/mcconfig
 
 注意：这些命令仅限管理员使用，可以跨群组管理服务器。
 配置修改请直接编辑配置文件或联系管理员。""")
@@ -893,26 +1110,12 @@ class MineCraftStatusPlugin(BasePlugin):
                 await self.handle_admin_help_command(event)
             elif command[0] == '/mcmonitor':
                 await self.handle_monitor_command(event, command)
-            elif command[0] == '/mcchart':
-                await self.handle_chart_command(event, command)
-            elif command[0] == '/mcstats':
-                await self.handle_stats_command(event, command)
-            elif command[0] == '/mcconfig':
-                await self.handle_config_command(event, command)
             else:
                 # 不是管理员命令，跳过处理
                 return
         except Exception as e:
             _log.error(f"处理管理员命令时发生错误: {e}")
             await event.reply_text("处理命令时发生错误，请稍后重试。")
-
-    async def scheduler_monitor_server_status(self, ip: str, port: int):
-        """定时监控Minecraft服务器状态
-        :param ip: 服务器IP地址
-        :param port: 服务器端口
-        """
-        # 这个方法已经被新的监控系统替代
-        pass
 
     async def on_load(self):
         """插件加载时的初始化"""
@@ -937,22 +1140,26 @@ class MineCraftStatusPlugin(BasePlugin):
         if 'bind_servers' not in self.data['data']:
             self.data['data']['bind_servers'] = {}
 
-        if 'monitor_servers' not in self.data['data']:
-            self.data['data']['monitor_servers'] = {}
+        # if 'monitor_servers' not in self.data['data']:
+        #     self.data['data']['monitor_servers'] = {}
 
-        # 启动监控任务
-        self._register_monitor_task()
+        # 注册监控任务
+        self.add_scheduled_task(
+            self.monitor_all_servers,
+            "minecraft_monitor",
+            self.config['monitor_interval'],  # 定时监控间隔
+        )
 
         # 注册用户命令处理器
         self.register_user_func(
             "UserCommand",
             self.user_command_handler,
-            description="查询服务器状态、显示服务器列表、生成图表、查看统计信息、查看配置",
-            usage="/mcs [ip:port]|/mclist [group_id]|/mchelp|/mcchart <name> [hours]|/mcstats <name> [hours]|/mcconfig",
-            regex='^/mc(s|list|help|chart|stats|config)',
+            description="查询服务器状态（实时数据）、显示服务器列表、生成图表、查看统计信息、查看所有监控服务器状态",
+            usage="/mcs [ip:port]|/mclist [group_id]|/mchelp|/mcchart <name> [hours]|/mcstats <name> [hours]|/mcstatus",
+            regex='^/mc(s|list|help|chart|stats|status)',
             examples=[
-                "/mcs my.server.com:25565",  # 查询指定服务器状态
-                "/mcs",  # 查询群组绑定的服务器状态
+                "/mcs my.server.com:25565",  # 查询指定服务器实时状态
+                "/mcs",  # 查询群组绑定的服务器实时状态
                 "/mclist",  # 列出群组绑定的服务器
                 "/mclist 123456789",  # 列出指定群组绑定的服务器
                 "/mchelp",  # 显示帮助信息
@@ -960,7 +1167,7 @@ class MineCraftStatusPlugin(BasePlugin):
                 "/mcchart MyServer 48",  # 生成48小时状态图表
                 "/mcstats MyServer",  # 查看24小时统计信息
                 "/mcstats MyServer 72",  # 查看72小时统计信息
-                "/mcconfig"  # 查看当前配置
+                "/mcstatus",  # 显示所有监控服务器状态
             ]
         )
 
@@ -968,9 +1175,9 @@ class MineCraftStatusPlugin(BasePlugin):
         self.register_admin_func(
             "AdminCommand",
             self.admin_command_handler,
-            description="添加/删除服务器到监控列表、管理监控状态、查看配置",
-            usage="/mcadd <name> <ip:port> [group_id]|/mcdel <name> [group_id]|/mchelp-admin|/mcmonitor <name> <on|off>|/mcconfig",
-            regex='^/mc(add|del|help-admin|monitor|chart|stats|config)',
+            description="添加/删除服务器到监控列表、管理监控状态、生成图表、查看统计信息、查看所有监控服务器状态",
+            usage="/mcadd <name> <ip:port> [group_id]|/mcdel <name> [group_id]|/mchelp-admin|/mcmonitor <name> <on|off>|/mcstatus",
+            regex='^/mc(add|del|help-admin|monitor|chart|stats|status)',
             examples=[
                 "/mcadd MyServer my.server.com:25565",  # 添加服务器到当前群组
                 "/mcadd MyServer my.server.com:25565 123456789",  # 添加服务器到指定群组
@@ -981,7 +1188,7 @@ class MineCraftStatusPlugin(BasePlugin):
                 "/mcmonitor MyServer off",  # 禁用服务器监控
                 "/mcchart MyServer 24",  # 生成24小时状态图表
                 "/mcstats MyServer 48",  # 查看48小时统计信息
-                "/mcconfig"  # 查看当前配置
+                "/mcstatus",  # 显示所有监控服务器状态
             ]
         )
 
