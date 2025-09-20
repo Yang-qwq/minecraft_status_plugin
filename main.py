@@ -341,20 +341,36 @@ class MinecraftStatusPlugin(BasePlugin):
     async def generate_status_chart(self, server_name: str, ip: str, port: int, hours: int = 24) -> Optional[str]:
         """生成服务器状态图表"""
         try:
+            import matplotlib
+            # 设置常用的中文字体，按平台优先级
+            font_list = [
+                "Microsoft YaHei",  # Windows
+                "SimHei",           # Windows
+                "STHeiti",          # macOS
+                "PingFang SC",      # macOS
+                "WenQuanYi Micro Hei",  # Linux
+                "Noto Sans CJK SC",     # Linux
+                "Arial Unicode MS",     # 通用
+                "Arial",                # 英文
+                "sans-serif"
+            ]
+            matplotlib.rcParams['font.sans-serif'] = font_list
+            matplotlib.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
+
             history = await self.get_server_history(ip, port, hours)
             if not history:
                 return None
-            
+
             # 创建图表
             fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
             fig.suptitle(f'服务器 {server_name} 状态监控 ({hours}小时)', fontsize=14)
-            
+
             # 准备数据
             timestamps = [h['timestamp'] for h in history]
             online_players = [h['online_players'] if h['online_players'] is not None else 0 for h in history]
             response_times = [h['response_time'] for h in history if h['response_time'] is not None]
             response_timestamps = [h['timestamp'] for h in history if h['response_time'] is not None]
-            
+
             # 玩家数量图表
             ax1.plot(timestamps, online_players, 'b-', label='在线玩家', linewidth=2)
             ax1.fill_between(timestamps, online_players, alpha=0.3, color='blue')
@@ -362,7 +378,7 @@ class MinecraftStatusPlugin(BasePlugin):
             ax1.set_title('在线玩家数量变化')
             ax1.legend()
             ax1.grid(True, alpha=0.3)
-            
+
             # 响应时间图表
             if response_times:
                 ax2.plot(response_timestamps, response_times, 'g-', label='响应时间', linewidth=2)
@@ -373,22 +389,22 @@ class MinecraftStatusPlugin(BasePlugin):
             else:
                 ax2.text(0.5, 0.5, '无响应时间数据', ha='center', va='center', transform=ax2.transAxes)
                 ax2.set_title('服务器响应时间')
-            
+
             # 格式化x轴时间
             for ax in [ax1, ax2]:
                 ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
                 ax.xaxis.set_major_locator(mdates.HourLocator(interval=max(1, hours//6)))
                 plt.setp(ax.xaxis.get_majorticklabels(), rotation=45)
-            
+
             plt.tight_layout()
-            
+
             # 保存图表
             chart_path = os.path.join(os.path.dirname(self.db_path), f"{server_name}_{ip}_{port}_status.png")
             plt.savefig(chart_path, dpi=150, bbox_inches='tight')
             plt.close()
-            
+
             return chart_path
-            
+
         except Exception as e:
             _log.error(f"生成状态图表失败: {e}")
             return None
@@ -1148,6 +1164,10 @@ class MinecraftStatusPlugin(BasePlugin):
 
     async def on_load(self):
         """插件加载时的初始化"""
+        # 初始化文件结构
+        if not os.path.exists(self._data_path.parent.as_posix() + "/charts"):
+            os.makedirs(self._data_path.parent.as_posix() + "/charts")
+
         # 设置数据库路径
         self.db_path = self._data_path.parent.as_posix() + "/server_history.db"
         
