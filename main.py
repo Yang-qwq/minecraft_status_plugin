@@ -342,17 +342,19 @@ class MinecraftStatusPlugin(BasePlugin):
     async def generate_status_chart(self, server_name: str, ip: str, port: int, hours: int = 24) -> Optional[str]:
         """生成服务器状态图表"""
         try:
-            import matplotlib
-            # 设置常用的中文字体，按平台优先级
+            # 设置常用的中文字体，优先兼容 Linux 上的 CJK 字体
             font_list = [
-                "Microsoft YaHei",  # Windows
-                "SimHei",  # Windows
-                "STHeiti",  # macOS
-                "PingFang SC",  # macOS
-                "WenQuanYi Micro Hei",  # Linux
-                "Noto Sans CJK SC",  # Linux
-                "Arial Unicode MS",  # 通用
-                "Arial",  # 英文
+                "Noto Sans CJK SC",       # Linux 常见无衬线中文
+                "Noto Serif CJK SC",      # Linux 常见衬线中文
+                "Noto Sans Mono CJK SC",  # Linux 常见等宽中文
+                "WenQuanYi Zen Hei",      # Linux 文泉驿正黑
+                "WenQuanYi Micro Hei",    # Linux 文泉驿微米黑（部分发行版）
+                "Microsoft YaHei",        # Windows 微软雅黑
+                "SimHei",                 # Windows 黑体
+                "PingFang SC",            # macOS 苹方
+                "STHeiti",                # macOS 华文黑体（旧系统）
+                "Arial Unicode MS",       # 通用 Unicode 覆盖
+                "Arial",                  # 英文
                 "sans-serif"
             ]
             matplotlib.rcParams['font.sans-serif'] = font_list
@@ -398,7 +400,7 @@ class MinecraftStatusPlugin(BasePlugin):
             sizes = [online_count, offline_count]
             colors = ['#4CAF50', '#F44336']
             if online_count + offline_count > 0:
-                wedges, texts, autotexts = ax3.pie(
+                ax3.pie(
                     sizes,
                     labels=labels,
                     autopct='%1.1f%%',
