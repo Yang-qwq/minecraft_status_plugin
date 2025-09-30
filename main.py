@@ -362,8 +362,8 @@ class MinecraftStatusPlugin(BasePlugin):
             if not history:
                 return None
 
-            # 创建图表
-            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
+            # 创建图表（增加第三个子图用于在线/离线饼图）
+            fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 12))
             fig.suptitle(f'服务器 {server_name} 状态监控 ({hours}小时)', fontsize=14)
 
             # 准备数据
@@ -391,7 +391,27 @@ class MinecraftStatusPlugin(BasePlugin):
                 ax2.text(0.5, 0.5, '无响应时间数据', ha='center', va='center', transform=ax2.transAxes)
                 ax2.set_title('服务器响应时间')
 
-            # 格式化x轴时间
+            # 在线/离线饼图
+            online_count = sum(1 for h in history if h.get('is_online'))
+            offline_count = len(history) - online_count
+            labels = ['在线', '离线']
+            sizes = [online_count, offline_count]
+            colors = ['#4CAF50', '#F44336']
+            if online_count + offline_count > 0:
+                wedges, texts, autotexts = ax3.pie(
+                    sizes,
+                    labels=labels,
+                    autopct='%1.1f%%',
+                    startangle=90,
+                    colors=colors,
+                    textprops={'color': 'black'}
+                )
+                ax3.axis('equal')
+            else:
+                ax3.text(0.5, 0.5, '无在线/离线数据', ha='center', va='center', transform=ax3.transAxes)
+            ax3.set_title('在线/离线占比')
+
+            # 格式化x轴时间（仅对折线图适用）
             for ax in [ax1, ax2]:
                 ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
                 ax.xaxis.set_major_locator(mdates.HourLocator(interval=max(1, hours // 6)))
