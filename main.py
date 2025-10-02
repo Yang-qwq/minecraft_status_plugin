@@ -50,7 +50,7 @@ class MinecraftStatusPlugin(BasePlugin):
         except Exception as e:
             _log.error(f"数据库连接初始化失败: {e}")
             self.sqlite_conn = None
-            raise
+            raise sqlite3.Error(f"数据库连接初始化失败: {e}")
 
     def ensure_connection(self):
         """确保数据库连接有效"""
@@ -112,7 +112,7 @@ class MinecraftStatusPlugin(BasePlugin):
 
         except Exception as e:
             _log.error(f"数据库初始化失败: {e}")
-            raise
+            raise sqlite3.Error(f"数据库初始化失败: {e}")
 
     async def save_server_status(self, ip: str, port: int,
                                  status: Dict[str, Any], response_time: float = None,
@@ -474,7 +474,7 @@ class MinecraftStatusPlugin(BasePlugin):
     async def handle_chart_command(self, event: BaseMessage | GroupMessage | PrivateMessage, command: list) -> None:
         """处理 /mcchart 命令"""
         if len(command) < 2:
-            await event.reply_text("请提供服务器名称。格式：/mcchart <服务器名称> [小时数]")
+            await event.reply_text("请提供服务器名称\n格式：/mcchart <服务器名称> [小时数]")
             return
 
         server_name = command[1]
@@ -484,13 +484,13 @@ class MinecraftStatusPlugin(BasePlugin):
         group_id = event.group_id
         if group_id not in self.data['data']['bind_servers'] or server_name not in self.data['data']['bind_servers'][
             group_id]:
-            await event.reply_text(f"服务器 {server_name} 不在当前群组的监控列表中。")
+            await event.reply_text(f"服务器 {server_name} 不在当前群组的监控列表中")
             return
 
         # 检查服务器是否开启监控
         server_address = self.data['data']['bind_servers'][group_id][server_name]
         if not self.data['data']['monitor_servers'].get(server_address, False):
-            await event.reply_text(f"服务器 {server_name} 未启用监控，无法获取统计信息。")
+            await event.reply_text(f"服务器 {server_name} 未启用监控，无法获取统计信息")
             return
 
         await event.reply_text(f"正在生成服务器 {server_name} 的状态图表，请稍候...")
@@ -509,8 +509,8 @@ class MinecraftStatusPlugin(BasePlugin):
                         [f"服务器 {server_name} 的状态图表已生成，时间范围：{hours}小时", Image(chart_path)])
                 )
             else:
-                _log.warning(f"无法生成服务器 {server_name} 的状态图表，可能没有足够的历史数据")
-                await event.reply_text(f"无法生成服务器 {server_name} 的状态图表，可能没有足够的历史数据。")
+                _log.warning(f"无法生成服务器 {server_name} 的状态图表")
+                await event.reply_text(f"无法生成服务器 {server_name} 的状态图表，可能没有足够的历史数据")
         except Exception as e:
             await event.reply_text(f"生成图表时发生错误: {e}")
 
@@ -522,7 +522,7 @@ class MinecraftStatusPlugin(BasePlugin):
         :return: None
         """
         if len(command) < 2:
-            await event.reply_text("请提供子命令。格式：/mcmonitor <set|list> [参数]")
+            await event.reply_text("请提供子命令！\n格式：/mcmonitor <set|list> [参数]")
             return
 
         subcommand = command[1].lower()
@@ -530,11 +530,11 @@ class MinecraftStatusPlugin(BasePlugin):
         if subcommand == 'set':
             await self.handle_monitor_set_command(event, command)
         elif subcommand == 'list':
-            await self.handle_monitor_list_command(event, command)
+            await self.handle_monitor_list_command(event)
         elif subcommand == 'purge':
             await self.handle_monitor_purge_command(event, command)
         else:
-            await event.reply_text("无效的子命令。支持的命令：/mcmonitor <set|list|purge> [参数]")
+            await event.reply_text("无效的子命令！\n支持的命令：/mcmonitor <set|list|purge> [参数]")
 
     async def handle_monitor_set_command(self, event: BaseMessage | GroupMessage | PrivateMessage,
                                          command: list) -> None:
@@ -545,7 +545,7 @@ class MinecraftStatusPlugin(BasePlugin):
         :return: None
         """
         if len(command) < 4:
-            await event.reply_text("请提供服务器名称和监控状态。格式：/mcmonitor set <服务器名称> <on|off>")
+            await event.reply_text("请提供服务器名称和监控状态\n格式：/mcmonitor set <服务器名称> <on|off>")
             return
 
         server_name = command[2]
@@ -560,7 +560,7 @@ class MinecraftStatusPlugin(BasePlugin):
         # 检查服务器是否在绑定列表中
         if group_id not in self.data['data']['bind_servers'] or server_name not in self.data['data']['bind_servers'][
             group_id]:
-            await event.reply_text(f"服务器 {server_name} 不在当前群组的绑定列表中。")
+            await event.reply_text(f"服务器 {server_name} 不在当前群组的绑定列表中")
             return
 
         server_address = self.data['data']['bind_servers'][group_id][server_name]
@@ -581,7 +581,7 @@ class MinecraftStatusPlugin(BasePlugin):
                 self.data['data']['monitor_servers'][server_address] = False
 
             status_text = "启用" if is_monitoring else "禁用"
-            await event.reply_text(f"已{status_text}服务器 {server_name} 的自动监控。")
+            await event.reply_text(f"已{status_text}服务器 {server_name} 的自动监控")
 
         except Exception as e:
             _log.error('更新监控配置失败', exc_info=e)
@@ -607,7 +607,7 @@ class MinecraftStatusPlugin(BasePlugin):
                         })
 
             if not monitoring_servers:
-                await event.reply_text("当前没有正在监控的服务器。")
+                await event.reply_text("当前没有正在监控的服务器")
                 return
 
             # 构建回复消息
@@ -655,7 +655,7 @@ class MinecraftStatusPlugin(BasePlugin):
             stats_before = await self.get_database_stats()
 
             if stats_before.get('total_records', 0) == 0:
-                await event.reply_text("数据库中没有数据需要清理。")
+                await event.reply_text("数据库中没有数据需要清理")
                 return
 
             # 执行清理操作
@@ -691,7 +691,7 @@ class MinecraftStatusPlugin(BasePlugin):
     async def handle_stats_command(self, event: BaseMessage | GroupMessage | PrivateMessage, command: list) -> None:
         """处理 /mcstats 命令"""
         if len(command) < 2:
-            await event.reply_text("请提供服务器名称。格式：/mcstats <服务器名称> [小时数]")
+            await event.reply_text("请提供服务器名称！\n格式：/mcstats <服务器名称> [小时数]")
             return
 
         server_name = command[1]
@@ -701,13 +701,13 @@ class MinecraftStatusPlugin(BasePlugin):
         # 检查是否为有效服务器
         if group_id not in self.data['data']['bind_servers'] or server_name not in self.data['data']['bind_servers'][
             group_id]:
-            await event.reply_text(f"服务器 {server_name} 不在当前群组的监控列表中。")
+            await event.reply_text(f"服务器 {server_name} 不在当前群组的监控列表中")
             return
 
         # 检查服务器是否开启监控
         server_address = self.data['data']['bind_servers'][group_id][server_name]
         if not self.data['data']['monitor_servers'].get(server_address, False):
-            await event.reply_text(f"服务器 {server_name} 未启用监控，无法获取统计信息。")
+            await event.reply_text(f"服务器 {server_name} 未启用监控，无法获取统计信息")
             return
 
         try:
@@ -719,7 +719,7 @@ class MinecraftStatusPlugin(BasePlugin):
         try:
             history = await self.get_server_history(ip, port, hours)
             if not history:
-                await event.reply_text(f"服务器 {server_name} 没有找到历史数据。")
+                await event.reply_text(f"服务器 {server_name} 没有找到历史数据")
                 return
 
             # 计算统计信息
@@ -947,11 +947,11 @@ class MinecraftStatusPlugin(BasePlugin):
         :return: 状态信息字符串
         """
         if group_id not in self.data['data']['bind_servers']:
-            return "当前群组没有绑定任何Minecraft服务器。请使用 /mcadd 命令添加服务器。"
+            return "当前群组没有绑定任何Minecraft服务器！\n请使用 /mcadd 命令添加服务器"
 
         servers = self.data['data']['bind_servers'][group_id]
         if not servers:
-            return "当前群组没有绑定任何Minecraft服务器。请使用 /mcadd 命令添加服务器。"
+            return "当前群组没有绑定任何Minecraft服务器！\n请使用 /mcadd 命令添加服务器"
 
         response_parts = []
         server_names = list(servers.keys())
@@ -1002,7 +1002,7 @@ class MinecraftStatusPlugin(BasePlugin):
         group_id = int(command[1]) if len(command) > 1 else event.group_id
 
         if group_id not in self.data['data']['bind_servers'] or not self.data['data']['bind_servers'][group_id]:
-            await event.reply_text(f"群组 {group_id} 没有绑定任何Minecraft服务器。")
+            await event.reply_text(f"群组 {group_id} 没有绑定任何Minecraft服务器！")
             return
 
         servers = self.data['data']['bind_servers'][group_id]
@@ -1051,7 +1051,7 @@ class MinecraftStatusPlugin(BasePlugin):
         try:
             command = shlex.split(replaced_message)
         except ValueError:
-            await event.reply_text("命令格式错误，请检查引号是否匹配。")
+            await event.reply_text("命令格式错误，请检查引号是否匹配！")
             return
 
         if not command:
@@ -1074,7 +1074,7 @@ class MinecraftStatusPlugin(BasePlugin):
                 return
         except Exception as e:
             _log.error(f"处理用户命令时发生错误: {e}")
-            await event.reply_text("处理命令时发生错误，请稍后重试。")
+            await event.reply_text("处理命令时发生错误，请稍后重试")
 
     async def handle_add_command(self, event: BaseMessage | GroupMessage | PrivateMessage, command: list) -> None:
         """
@@ -1083,7 +1083,7 @@ class MinecraftStatusPlugin(BasePlugin):
         :param command: 解析后的命令列表
         """
         if len(command) < 3:
-            await event.reply_text("请提供服务器名称和地址。格式：/mcadd <服务器名称> <ip:port> [群组ID]")
+            await event.reply_text("请提供服务器名称和地址！\n格式：/mcadd <服务器名称> <ip:port> [群组ID]")
             return
 
         server_name = command[1]
@@ -1092,7 +1092,7 @@ class MinecraftStatusPlugin(BasePlugin):
 
         # 验证服务器名称
         if not self.validate_server_name(server_name):
-            await event.reply_text("服务器名称只能包含字母、数字、下划线和连字符。")
+            await event.reply_text("服务器名称只能包含字母、数字、下划线和连字符")
             return
 
         # 验证服务器地址
@@ -1107,12 +1107,12 @@ class MinecraftStatusPlugin(BasePlugin):
             self.data['data']['bind_servers'][group_id] = {}
 
         if server_name in self.data['data']['bind_servers'][group_id]:
-            await event.reply_text(f"服务器 {server_name} 已经在群组 {group_id} 的监控列表中。")
+            await event.reply_text(f"服务器 {server_name} 已经在群组 {group_id} 的监控列表中")
             return
 
         # 添加服务器到监控列表
         self.data['data']['bind_servers'][group_id][server_name] = server_address
-        await event.reply_text(f"已添加服务器 {server_name} ({server_address}) 到群组 {group_id} 的监控列表。")
+        await event.reply_text(f"已添加服务器 {server_name} ({server_address}) 到群组 {group_id} 的监控列表")
 
     async def handle_delete_command(self, event: BaseMessage | GroupMessage | PrivateMessage, command: list) -> None:
         """
@@ -1121,22 +1121,22 @@ class MinecraftStatusPlugin(BasePlugin):
         :param command: 解析后的命令列表
         """
         if len(command) < 2:
-            await event.reply_text("请提供要删除的服务器名称。格式：/mcdel <服务器名称> [群组ID]")
+            await event.reply_text("请提供要删除的服务器名称！\n格式：/mcdel <服务器名称> [群组ID]")
             return
 
         server_name = command[1]
         group_id = int(command[2]) if len(command) > 2 else event.group_id
 
         if group_id not in self.data['data']['bind_servers']:
-            await event.reply_text(f"群组 {group_id} 没有绑定任何Minecraft服务器。")
+            await event.reply_text(f"群组 {group_id} 没有绑定任何Minecraft服务器")
             return
 
         if server_name in self.data['data']['bind_servers'][group_id]:
             # 删除指定服务器
             del self.data['data']['bind_servers'][group_id][server_name]
-            await event.reply_text(f"已删除群组 {group_id} 中的服务器 {server_name}。")
+            await event.reply_text(f"已删除群组 {group_id} 中的服务器 {server_name}")
         else:
-            await event.reply_text(f"群组 {group_id} 中没有名为 {server_name} 的服务器。")
+            await event.reply_text(f"群组 {group_id} 中没有名为 {server_name} 的服务器")
 
     async def handle_admin_help_command(self, event: BaseMessage | GroupMessage | PrivateMessage) -> None:
         """
@@ -1166,8 +1166,8 @@ class MinecraftStatusPlugin(BasePlugin):
 /mcchart MyServer 24
 /mcstats MyServer 48
 
-注意：这些命令仅限管理员使用，可以跨群组管理服务器。
-配置修改请直接编辑配置文件或联系管理员。""")
+注意：这些命令仅限管理员使用，可以跨群组管理服务器
+配置修改请直接编辑配置文件或联系管理员""")
 
     async def admin_command_handler(self, event: BaseMessage | GroupMessage | PrivateMessage):
         """处理管理员命令事件"""
@@ -1178,7 +1178,7 @@ class MinecraftStatusPlugin(BasePlugin):
         try:
             command = shlex.split(replaced_message)
         except ValueError:
-            await event.reply_text("命令格式错误，请检查引号是否匹配。")
+            await event.reply_text("命令格式错误，请检查引号是否匹配！")
             return
 
         if not command:
@@ -1199,7 +1199,7 @@ class MinecraftStatusPlugin(BasePlugin):
                 return
         except Exception as e:
             _log.error(f"处理管理员命令时发生错误: {e}")
-            await event.reply_text("处理命令时发生错误，请稍后重试。")
+            await event.reply_text("处理命令时发生错误，请稍后重试")
 
     async def on_load(self):
         """插件加载时的初始化"""
