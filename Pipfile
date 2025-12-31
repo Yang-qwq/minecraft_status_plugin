@@ -9,9 +9,9 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-ncatbot = "*"
 mcping = "*"
 matplotlib = "*"
+ncatbot = "==3.*"
 
 [dev-packages]
 isort = "*"
