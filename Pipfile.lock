@@ -263,13 +263,14 @@
         },
         "dnspython": {
             "hashes": [
-                "sha256:41db6ac9d09cee920af813e6bdcddcfe0bdf441682c614d4d99512b805c85b0e",
-                "sha256:a39c1061f6866c5c5f46892604f1cc88e75a418a380938b66743709a642487d9",
-                "sha256:b4c34b7d10b51bcc3a5071e7b8dee77939f1e878477eeecc965e9835f63c6c86",
-                "sha256:ce9c432eda0dc91cf618a5cedf1a4e142651196bbcd2c80e89ed5a907e5cfaf1"
+                "sha256:01d9bbc4a2d76bf0db7c1f729812ded6d912bd318d3b1cf81d30c0f845dbf3af",
+                "sha256:181d3c6996452cb1189c4046c61599b84a5a86e099562ffde77d26984ff26d0f",
+                "sha256:1aaaa17a3750d336317ae73d903f77cf4b8a87d5e2c07f679ce7747db22403e5",
+                "sha256:ea19111c2ff119883c96811efa25c7127f008a5c1624718e5153188eea9b0a2c"
             ],
-            "markers": "python_version >= '3.9'",
-            "version": "==2.7.0"
+            "index": "mirror",
+            "markers": "python_version >= '3.10'",
+            "version": "==2.8.0"
         },
         "exceptiongroup": {
             "hashes": [
@@ -940,11 +941,11 @@
         },
         "setuptools": {
             "hashes": [
-                "sha256:062d34222ad13e0cc312a4c02d73f059e86a4acbfbdea8f8f76b28c99f306922",
-                "sha256:f36b47402ecde768dbfafc46e8e4207b4360c654f1f3bb84475f0a28628fb19c"
+                "sha256:22e0a2d69474c6ae4feb01951cb69d515ed23728cf96d05513d36e42b62b37cb",
+                "sha256:70b18734b607bd1da571d097d236cfcfacaf01de45717d59e6e04b96877532e0"
             ],
             "markers": "python_version >= '3.9'",
-            "version": "==80.9.0"
+            "version": "==82.0.0"
         },
         "six": {
             "hashes": [
