@@ -22,7 +22,7 @@ _log = get_log("minecraft_status_plugin")  # 日志记录器
 
 class MinecraftStatusPlugin(BasePlugin):
     name = "MinecraftStatusPlugin"  # 插件名
-    version = "0.0.4"  # 插件版本
+    version = "0.0.5"  # 插件版本
 
     def init_database_connection(self):
         """初始化数据库连接"""
@@ -422,7 +422,7 @@ class MinecraftStatusPlugin(BasePlugin):
             plt.tight_layout()
 
             # 保存图表
-            chart_path = self._data_path.parent.as_posix() + "/charts/" + f"{server_name}_{ip}_{port}_status.png"
+            chart_path = self.work_space.path.as_posix() + "/charts/" + f"{server_name}_{ip}_{port}_status.png"
             plt.savefig(chart_path, dpi=150, bbox_inches='tight')
             plt.close()
 
@@ -1204,11 +1204,11 @@ class MinecraftStatusPlugin(BasePlugin):
     async def on_load(self):
         """插件加载时的初始化"""
         # 初始化文件结构
-        if not os.path.exists(self._data_path.parent.as_posix() + "/charts"):
-            os.makedirs(self._data_path.parent.as_posix() + "/charts")
+        if not os.path.exists(self.work_space.path.as_posix() + "/charts"):
+            os.makedirs(self.work_space.path.as_posix() + "/charts")
 
         # 设置数据库路径
-        self.db_path = self._data_path.parent.as_posix() + "/server_history.db"
+        self.db_path = self.work_space.path.as_posix() + "/server_history.db"
 
         # 初始化数据库连接
         self.sqlite_conn = None
