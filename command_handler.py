@@ -2,6 +2,7 @@
 import shlex
 from ncatbot.core import BaseMessage, GroupMessage, PrivateMessage, MessageChain, Image
 from ncatbot.utils.logger import get_log
+import base64
 
 _log = get_log("MinecraftStatusPlugin")
 
@@ -17,6 +18,7 @@ class MinecraftCommandHandlerMixin:
 
         server_name = command[1]
         hours = int(command[2]) if len(command) > 2 else 24
+        message_chain = [f"服务器 {server_name} 的状态图表已生成，时间范围：{hours}小时"]
 
         # 检查是否为有效服务器
         group_id = event.group_id
@@ -41,17 +43,25 @@ class MinecraftCommandHandlerMixin:
 
         try:
             chart_path = await self.generate_status_chart(server_name, ip, port, hours)
-            if chart_path:
+            if chart_path:  # 图片生成成功
+                if self.config['ForceBase64ImageSend']:
+                    # base64编码图表内容并发送
+                    with open(chart_path, 'rb') as f:
+                        image_data = f.read()
+                    chart_b64 = base64.b64encode(image_data).decode('utf-8')
+
+                    message_chain.append(Image('data:image/png;base64,' + chart_b64))
+                else:
+                    message_chain.append(Image(chart_path))
+
                 await event.reply(
-                    rtf=MessageChain(
-                        [f"服务器 {server_name} 的状态图表已生成，时间范围：{hours}小时", Image(chart_path)])
+                    rtf=MessageChain(message_chain)
                 )
             else:
                 _log.warning(f"无法生成服务器 {server_name} 的状态图表")
                 await event.reply_text(f"无法生成服务器 {server_name} 的状态图表，可能没有足够的历史数据")
         except Exception as e:
             await event.reply_text(f"生成图表时发生错误: {e}")
-
 
     async def handle_monitor_command(self, event: BaseMessage | GroupMessage | PrivateMessage, command: list) -> None:
         """处理 /mcmonitor 命令，支持 set 和 list 子命令
@@ -74,7 +84,6 @@ class MinecraftCommandHandlerMixin:
             await self.handle_monitor_purge_command(event, command)
         else:
             await event.reply_text("无效的子命令！\n支持的命令：/mcmonitor <set|list|purge> [参数]")
-
 
     async def handle_monitor_set_command(self, event: BaseMessage | GroupMessage | PrivateMessage,
                                          command: list) -> None:
@@ -127,7 +136,6 @@ class MinecraftCommandHandlerMixin:
             _log.error('更新监控配置失败', exc_info=e)
             await event.reply_text(f"更新监控配置时发生错误: {e}")
 
-
     async def handle_monitor_list_command(self, event: BaseMessage | GroupMessage | PrivateMessage) -> None:
         """处理 /mcmonitor list 命令，列出所有正在监控的服务器
 
@@ -165,7 +173,6 @@ class MinecraftCommandHandlerMixin:
         except Exception as e:
             _log.error('获取监控服务器列表失败', exc_info=e)
             await event.reply_text(f"获取监控服务器列表时发生错误: {e}")
-
 
     async def handle_monitor_purge_command(self, event: BaseMessage | GroupMessage | PrivateMessage,
                                            command: list) -> None:
@@ -229,7 +236,6 @@ class MinecraftCommandHandlerMixin:
         except Exception as e:
             _log.error('清理数据时发生错误', exc_info=e)
             await event.reply_text(f"清理数据时发生错误: {e}")
-
 
     async def handle_stats_command(self, event: BaseMessage | GroupMessage | PrivateMessage, command: list) -> None:
         """处理 /mcstats 命令"""
@@ -313,7 +319,6 @@ class MinecraftCommandHandlerMixin:
         except Exception as e:
             await event.reply_text(f"获取统计信息时发生错误: {e}")
 
-
     async def handle_status_command(self, event: BaseMessage | GroupMessage | PrivateMessage, command: list) -> None:
         """
         处理 /mcs 命令
@@ -334,7 +339,6 @@ class MinecraftCommandHandlerMixin:
 
         await event.reply_text(response)
 
-
     async def handle_list_command(self, event: BaseMessage | GroupMessage | PrivateMessage, command: list) -> None:
         """
         处理 /mclist 命令
@@ -353,7 +357,6 @@ class MinecraftCommandHandlerMixin:
             response += f"- {server_name}: {server_address}\n"
 
         await event.reply_text(response)
-
 
     async def handle_help_command(self, event: BaseMessage | GroupMessage | PrivateMessage) -> None:
         """
@@ -384,7 +387,6 @@ class MinecraftCommandHandlerMixin:
     /mcchart MyServer 48
     /mcstats MyServer 72
     """)
-
 
     async def user_command_handler(self, event: BaseMessage | GroupMessage | PrivateMessage):
         """处理用户命令事件"""
@@ -419,7 +421,6 @@ class MinecraftCommandHandlerMixin:
         except Exception as e:
             _log.error(f"处理用户命令时发生错误: {e}")
             await event.reply_text("处理命令时发生错误，请稍后重试")
-
 
     async def handle_add_command(self, event: BaseMessage | GroupMessage | PrivateMessage, command: list) -> None:
         """
@@ -459,7 +460,6 @@ class MinecraftCommandHandlerMixin:
         self.data['data']['bind_servers'][group_id][server_name] = server_address
         await event.reply_text(f"已添加服务器 {server_name} ({server_address}) 到群组 {group_id} 的监控列表")
 
-
     async def handle_delete_command(self, event: BaseMessage | GroupMessage | PrivateMessage, command: list) -> None:
         """
         处理 /mcdel 命令
@@ -483,7 +483,6 @@ class MinecraftCommandHandlerMixin:
             await event.reply_text(f"已删除群组 {group_id} 中的服务器 {server_name}")
         else:
             await event.reply_text(f"群组 {group_id} 中没有名为 {server_name} 的服务器")
-
 
     async def handle_admin_help_command(self, event: BaseMessage | GroupMessage | PrivateMessage) -> None:
         """
@@ -515,7 +514,6 @@ class MinecraftCommandHandlerMixin:
 
     注意：这些命令仅限管理员使用，可以跨群组管理服务器
     配置修改请直接编辑配置文件或联系管理员""")
-
 
     async def admin_command_handler(self, event: BaseMessage | GroupMessage | PrivateMessage):
         """处理管理员命令事件"""

@@ -47,17 +47,11 @@ pip install -r requirements.txt
 
 ### 监控设置
 
-- `monitor_interval`: 监控间隔时间（秒），范围：60-3600，默认：300
+- `MonitorInterval`: 监控间隔时间（秒），范围：60-3600，默认：300
 
-[//]: # (- `mention_online_players_change`: 玩家数量变化时是否发送通知，默认：false)
+[//]: # (- `MentionOnlinePlayersChange`: 玩家数量变化时是否发送通知，默认：false)
 
-[//]: # (- `mention_server_status_change`: 服务器状态变化时是否发送通知，默认：false)
-
-### 配置方式
-
-1. **配置文件方式**：在框架配置文件中设置插件参数（推荐）
-2. **命令查看**：使用 `/mcconfig` 命令查看当前配置
-3. **实时生效**：配置修改后自动重新注册定时任务
+[//]: # (- `MentionServerStatusChange`: 服务器状态变化时是否发送通知，默认：false)
 
 ## 使用方法
 
@@ -184,16 +178,6 @@ git submodule add https://github.com/Yang-qwq/minecraft_status_plugin.git plugin
 #### `/mchelp-admin`
 
 显示管理员帮助信息
-
-### 配置修改
-
-配置修改需要通过编辑配置文件实现：
-
-1. 修改框架配置文件中的插件配置部分
-2. 重启框架或重新加载插件
-3. 使用 `/mcconfig` 命令验证配置是否生效
-
-推荐使用配置文件方式，更加稳定和可靠。
 
 ## 数据库结构
 
