@@ -1,3 +1,2 @@
-ncatbot~=3.*
 mcping>=0.3.0
 matplotlib>=3.10.5
