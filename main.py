@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import asyncio
 import datetime
 import os
 import re
@@ -22,7 +23,7 @@ _log = get_log('minecraft_status_plugin')  # 日志记录器
 
 class MinecraftStatusPlugin(MinecraftCommandHandlerMixin, BasePlugin):
     name = 'MinecraftStatusPlugin'  # 插件名
-    version = '0.1.0'  # 插件版本
+    version = '0.1.1'  # 插件版本
 
     @staticmethod
     def get_system_temp_dir() -> str | os.PathLike:
@@ -139,31 +140,32 @@ class MinecraftStatusPlugin(MinecraftCommandHandlerMixin, BasePlugin):
         :return: None
         """
         try:
-            # 确保连接有效
-            self.ensure_connection()
+            async with self.db_lock:
+                # 确保连接有效
+                self.ensure_connection()
 
-            cursor = self.sqlite_conn.cursor()
+                cursor = self.sqlite_conn.cursor()
 
-            # 解析状态信息
-            players = status.get('players', {}) if status else {}
-            online_players = players.get('online', 0) if players else None
+                # 解析状态信息
+                players = status.get('players', {}) if status else {}
+                online_players = players.get('online', 0) if players else None
 
-            # 插入历史记录到server_status_history表（改进结构）
-            cursor.execute('''
-                INSERT INTO server_status_history 
-                (timestamp, server_ip, server_port, online_players, response_time, status, error_message)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                datetime.datetime.now(),
-                ip,
-                port,
-                online_players,
-                response_time,
-                'online' if status else 'offline',
-                error_message
-            ))
+                # 插入历史记录到server_status_history表（改进结构）
+                cursor.execute('''
+                    INSERT INTO server_status_history 
+                    (timestamp, server_ip, server_port, online_players, response_time, status, error_message)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    datetime.datetime.now(),
+                    ip,
+                    port,
+                    online_players,
+                    response_time,
+                    'online' if status else 'offline',
+                    error_message
+                ))
 
-            self.sqlite_conn.commit()
+                self.sqlite_conn.commit()
             _log.debug(f'已保存服务器 {ip}:{port} 的状态记录')
 
         except Exception as e:
@@ -549,7 +551,7 @@ class MinecraftStatusPlugin(MinecraftCommandHandlerMixin, BasePlugin):
         :raises mcping.exceptions.MCPingException: 其他MCPing异常
         :return: 服务器状态字典
         """
-        return mcping.status(ip, port)
+        return await mcping.async_status(ip, port)
 
     @staticmethod
     def parse_server_address(address: str) -> Tuple[str, int]:
@@ -695,6 +697,9 @@ class MinecraftStatusPlugin(MinecraftCommandHandlerMixin, BasePlugin):
         # 初始化数据库连接
         self.sqlite_conn = None
         self.init_database_connection()
+
+        # 设置数据库锁
+        self.db_lock = asyncio.Lock()
 
         # 初始化数据库
         self.init_database()
