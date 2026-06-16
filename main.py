@@ -1,23 +1,24 @@
 # -*- coding: utf-8 -*-
+import datetime
 import os
 import re
 import sqlite3
-import datetime
-from typing import Any, Dict, Tuple, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+
 import matplotlib
 
-from .command_handler import MinecraftCommandHandlerMixin
-
 matplotlib.use('Agg')  # 使用非交互式后端，适合服务器环境
-import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-
+import matplotlib.pyplot as plt
 import mcping
 from ncatbot.plugin import BasePlugin, CompatibleEnrollment
 from ncatbot.utils.logger import get_log
 
+from .command_handler import MinecraftCommandHandlerMixin
+
 bot = CompatibleEnrollment  # 兼容回调函数注册器
 _log = get_log('minecraft_status_plugin')  # 日志记录器
+
 
 class MinecraftStatusPlugin(MinecraftCommandHandlerMixin, BasePlugin):
     name = 'MinecraftStatusPlugin'  # 插件名
@@ -354,17 +355,17 @@ class MinecraftStatusPlugin(MinecraftCommandHandlerMixin, BasePlugin):
         try:
             # 设置常用的中文字体，优先兼容 Linux 上的 CJK 字体
             font_list = [
-                'Noto Sans CJK SC',       # Linux 常见无衬线中文
-                'Noto Serif CJK SC',      # Linux 常见衬线中文
+                'Noto Sans CJK SC',  # Linux 常见无衬线中文
+                'Noto Serif CJK SC',  # Linux 常见衬线中文
                 'Noto Sans Mono CJK SC',  # Linux 常见等宽中文
-                'WenQuanYi Zen Hei',      # Linux 文泉驿正黑
-                'WenQuanYi Micro Hei',    # Linux 文泉驿微米黑（部分发行版）
-                'Microsoft YaHei',        # Windows 微软雅黑
-                'SimHei',                 # Windows 黑体
-                'PingFang SC',            # macOS 苹方
-                'STHeiti',                # macOS 华文黑体（旧系统）
-                'Arial Unicode MS',       # 通用 Unicode 覆盖
-                'Arial',                  # 英文
+                'WenQuanYi Zen Hei',  # Linux 文泉驿正黑
+                'WenQuanYi Micro Hei',  # Linux 文泉驿微米黑（部分发行版）
+                'Microsoft YaHei',  # Windows 微软雅黑
+                'SimHei',  # Windows 黑体
+                'PingFang SC',  # macOS 苹方
+                'STHeiti',  # macOS 华文黑体（旧系统）
+                'Arial Unicode MS',  # 通用 Unicode 覆盖
+                'Arial',  # 英文
                 'sans-serif'
             ]
             matplotlib.rcParams['font.sans-serif'] = font_list

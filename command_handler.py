@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
-import shlex
-from ncatbot.core import BaseMessage, GroupMessage, PrivateMessage, MessageChain, Image
-from ncatbot.utils.logger import get_log
 import base64
+import shlex
+
+from ncatbot.core import (BaseMessage, GroupMessage, Image, MessageChain,
+                          PrivateMessage)
+from ncatbot.utils.logger import get_log
 
 _log = get_log("MinecraftStatusPlugin")
 
